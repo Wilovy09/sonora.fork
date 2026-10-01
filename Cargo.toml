@@ -12,6 +12,7 @@ repository = "https://github.com/sonorahq/sonora"
 embed = { path = "crates/embed" }
 i18n = { path = "crates/i18n" }
 icons = { path = "crates/icons" }
+motion = { path = "crates/motion" }
 music = { path = "crates/music" }
 state = { path = "crates/state" }
 storage = { path = "crates/storage" }
@@ -90,6 +91,8 @@ notify = "8.2"
 oauth2 = "5.0"
 open = "5.4"
 block2 = "0.6"
+core-foundation = "0.10"
+core-video = "0.5"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std"] }
 objc2-web-kit = { version = "0.3", default-features = false, features = [
@@ -120,6 +123,9 @@ objc2-core-foundation = { version = "0.3", default-features = false, features = 
   "std",
   "CFString",
 ] }
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std"] }
+objc2-core-media = { version = "0.3", default-features = false, features = ["std"] }
+objc2-core-video = { version = "0.3", default-features = false, features = ["std"] }
 objc2-io-kit = { version = "0.3", default-features = false, features = [
   "std",
   "pwr_mgt",
@@ -153,6 +159,7 @@ sys-locale = "0.3"
 symphonia = { version = "0.5.5", default-features = false, features = ["mkv", "ogg", "isomp4"] }
 tray-icon = { version = "0.24", default-features = false }
 unic-langid = { version = "0.9", features = ["macros"] }
+unicode-normalization = "0.1"
 unicode-segmentation = "1.12"
 ytmusic = { git = "https://github.com/sonorahq/ytmusic-rs", rev = "f213c0b" }
 

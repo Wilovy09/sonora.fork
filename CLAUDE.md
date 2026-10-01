@@ -20,12 +20,14 @@ crates/
   embed/      build-script helper that walks a folder and writes include_bytes! literals
   webview/    a native browser window over a throwaway session, for cookie sign-ins and PO tokens
   widevine/   the Widevine CDM host, pssh and CENC fMP4 parsing, for any DRM'd provider
+  motion/     platform video decoders for motion artwork loops (no gpui; AVFoundation on macOS)
 ```
 
 Dependency direction is strict. Do not create a back edge:
 
 ```
 sonora → views → state → music
+         views → motion
          state, music → storage
          state → webview
          music → widevine
