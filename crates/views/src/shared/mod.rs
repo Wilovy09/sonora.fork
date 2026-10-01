@@ -8,6 +8,7 @@ pub(crate) mod confirm;
 pub(crate) mod hero;
 pub(crate) mod local;
 pub(crate) mod menus;
+pub(crate) mod motion_cover;
 pub(crate) mod page;
 pub(crate) mod picks;
 pub(crate) mod pins;

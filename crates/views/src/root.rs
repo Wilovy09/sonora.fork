@@ -417,7 +417,7 @@ impl Root {
             .update(cx, |workspace, cx| workspace.show_side(tab, cx));
     }
 
-    /// Tells the adaptive theme and the wake lock whether fullscreen is up. The ambient
+    /// Tells the adaptive theme, the wake lock and the motion artwork whether fullscreen is up. The ambient
     /// background is painted out of the cover's hues, so fullscreen samples the cover even with
     /// the adaptive theme off, and leaving drops the tint again.
     fn announce_fullscreen(&self, fullscreen: bool, cx: &mut Context<Self>) {
@@ -425,6 +425,8 @@ impl Root {
             .update(cx, |adaptive, cx| adaptive.set_fullscreen(fullscreen, cx));
         let wake = Sonora::global(cx).wake.clone();
         wake.update(cx, |wake, cx| wake.set_fullscreen(fullscreen, cx));
+        let motion = Sonora::global(cx).motion.clone();
+        motion.update(cx, |motion, cx| motion.set_fullscreen(fullscreen, cx));
     }
 
     fn toggle_fullscreen(&mut self, cx: &mut Context<Self>) {

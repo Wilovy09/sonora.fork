@@ -133,6 +133,7 @@ enum Slot {
     Adaptive,
     Ambient,
     AmbientMotion,
+    MotionArtwork,
     Visualizer,
     VisualizerAbsolute,
     Icons,
@@ -575,6 +576,7 @@ impl SettingsView {
                     .ambient()
                     .then_some(Slot::AmbientMotion),
             )
+            .chain(motion::supported().then_some(Slot::MotionArtwork))
             .chain([Slot::Visualizer])
             .chain(
                 self.settings
@@ -688,6 +690,10 @@ impl SettingsView {
             Slot::AmbientMotion => (
                 t!("settings-ambient-motion"),
                 t!("settings-ambient-motion-detail"),
+            ),
+            Slot::MotionArtwork => (
+                t!("settings-motion-artwork"),
+                t!("settings-motion-artwork-detail"),
             ),
             Slot::Visualizer => (t!("settings-visualizer"), t!("settings-visualizer-detail")),
             Slot::VisualizerAbsolute => (
@@ -938,6 +944,7 @@ impl SettingsView {
             Slot::Adaptive => self.adaptive_row(cx).element,
             Slot::Ambient => self.ambient_row(cx).element,
             Slot::AmbientMotion => self.ambient_motion_row(cx).element,
+            Slot::MotionArtwork => self.motion_artwork_row(cx).element,
             Slot::Visualizer => self.visualizer_style_row(cx).element,
             Slot::VisualizerAbsolute => self.visualizer_absolute_row(cx).element,
             Slot::Icons => self.icons_row(cx).element,
@@ -1942,6 +1949,28 @@ impl SettingsView {
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.settings
                         .update(cx, |settings, cx| settings.set_ambient_motion(!on, cx));
+                }))
+                .into_any_element(),
+        )
+    }
+
+    /// Apple Music's looping album art over the fullscreen cover. Off by default, since a
+    /// lookup sends the playing track's names to Apple whichever provider plays it.
+    fn motion_artwork_row(&self, cx: &mut Context<Self>) -> Setting {
+        let theme = *cx.theme();
+        let muted = theme.muted_foreground;
+        let small = theme.text(Text::Small);
+        let on = self.settings.read(cx).motion_artwork();
+
+        self.row(
+            t!("settings-motion-artwork"),
+            t!("settings-motion-artwork-detail"),
+            muted,
+            small,
+            Switch::new("motion-artwork", on)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.settings
+                        .update(cx, |settings, cx| settings.set_motion_artwork(!on, cx));
                 }))
                 .into_any_element(),
         )

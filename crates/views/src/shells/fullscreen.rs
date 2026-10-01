@@ -21,6 +21,7 @@ use ui::{
 
 use crate::chrome::{Aside, TitleBarOptions};
 use crate::shared::menus::ItemMenu;
+use crate::shared::motion_cover::{MotionCover, Ready};
 use crate::shared::transport::{NOTCH, like, moved, percent, transport, volume_icon};
 use crate::shared::veil::{Edge, veil};
 use crate::shared::visualizer::VisualizerDrive;
@@ -88,6 +89,9 @@ pub struct FullscreenView {
     muted: Option<f32>,
     large: Option<SharedString>,
     revision: usize,
+    motion_cover: Entity<MotionCover>,
+    /// The physical side last asked of `state::Motion`, so a frame does not ask again.
+    motion_edge: u32,
     track_menu: ItemMenu,
     context_menu: Option<(music::Track, Point<Pixels>)>,
     last_moved: Instant,
@@ -118,6 +122,9 @@ impl FullscreenView {
         aside.update(cx, |aside, _| aside.strip());
         let me = cx.entity_id();
         let playlist_scrollbar = cx.new(|_| Scrollbar::inset().watching(me));
+        let motion_cover = cx.new(MotionCover::new);
+        cx.subscribe(&motion_cover, |_, _, _: &Ready, cx| cx.notify())
+            .detach();
 
         let mut this = Self {
             playback,
@@ -140,6 +147,8 @@ impl FullscreenView {
             muted: None,
             large: None,
             revision: 0,
+            motion_cover,
+            motion_edge: 0,
             track_menu: ItemMenu::new(playlist_scrollbar, cx),
             context_menu: None,
             last_moved: Instant::now(),
@@ -375,6 +384,9 @@ impl FullscreenView {
             || small.as_ref().is_some_and(|url| url.starts_with("file://"));
         let waiting = !local && album.is_some() && cover_large.is_none();
         let artwork_bounds = self.artwork_bounds.clone();
+        // Same guard as the large art: a track with no cover of its own never borrows a loop.
+        let motion = self.motion_cover.read(cx);
+        let looping = (small.is_some() && motion.ready()).then(|| motion.shown());
 
         div()
             .id("fullscreen-artwork")
@@ -423,8 +435,35 @@ impl FullscreenView {
                                     art.opacity(t)
                                 }),
                         )
+                    })
+                    .when_some(looping, |this, shown| {
+                        this.child(
+                            div()
+                                .absolute()
+                                .top(pad)
+                                .left(pad)
+                                .size(raster_side)
+                                .rounded(radius)
+                                .overflow_hidden()
+                                .child(self.motion_cover.clone())
+                                .motion(("cover-motion", shown), Motion::Slow, |art, t| {
+                                    art.opacity(t)
+                                }),
+                        )
                     }),
             )
+    }
+
+    /// Tells `state::Motion` how many physical pixels the cover raster spans, so it fetches a
+    /// loop that is sharp at that size.
+    fn want_motion_edge(&mut self, side: Pixels, window: &Window, cx: &mut Context<Self>) {
+        let edge = (side.as_f32() * window.scale_factor()).ceil() as u32;
+        if edge <= self.motion_edge {
+            return;
+        }
+        self.motion_edge = edge;
+        let motion = Sonora::global(cx).motion.clone();
+        motion.update(cx, |motion, cx| motion.want_edge(edge, cx));
     }
 
     fn open_context_menu(
@@ -1093,6 +1132,7 @@ impl Render for FullscreenView {
         // animate only the fixed large raster surface in the compositor.
         let side = snapped(near, window);
         let raster_side = snapped(far, window);
+        self.want_motion_edge(raster_side, window, cx);
         let cover_scale = presentation_scale(presented_side, raster_side);
         let lift = (presented_side - side) / 2.;
         let staged = self.panel.is_none() || split;
