@@ -6,7 +6,7 @@
 //! the reason it is isolated here. The user token is the account, and it is never logged.
 
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::RwLock;
 
 use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -33,8 +33,8 @@ pub(crate) const AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) 
 const PLAYER: &str = "https://music.apple.com/";
 
 /// The bearer token this process is using. It is the same for every visitor and lasts months,
-/// so it is read once.
-static BEARER: OnceLock<String> = OnceLock::new();
+/// so it is read once, and only read again after [`forget_bearer`].
+static BEARER: RwLock<Option<String>> = RwLock::new(None);
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct Credentials {
@@ -117,12 +117,25 @@ pub async fn bearer(http: &reqwest::Client) -> Result<String> {
     if let Some(token) = std::env::var(BEARER_ENV).ok().filter(|it| !it.is_empty()) {
         return Ok(token);
     }
-    if let Some(token) = BEARER.get() {
-        return Ok(token.clone());
+    if let Some(token) = BEARER.read().ok().and_then(|held| held.clone()) {
+        return Ok(token);
     }
     let token = read_bearer(http).await?;
     log::debug!("apple: read a bearer token of {} characters", token.len());
-    Ok(BEARER.get_or_init(|| token).clone())
+    let Ok(mut held) = BEARER.write() else {
+        return Ok(token);
+    };
+    Ok(held.get_or_insert(token).clone())
+}
+
+/// Drops `stale` after Apple refused it, so the next [`bearer`] reads the page again. A token
+/// another caller already replaced is left alone.
+pub fn forget_bearer(stale: &str) {
+    if let Ok(mut held) = BEARER.write()
+        && held.as_deref() == Some(stale)
+    {
+        *held = None;
+    }
 }
 
 /// Reads the token off music.apple.com: out of the page itself, or out of the script bundle the

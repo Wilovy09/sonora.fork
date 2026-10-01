@@ -11,7 +11,7 @@
 //! from the same endpoints the web player calls, described in [`client`]. One thing is missing
 //! rather than unfinished: lyrics, which the token read off the page has no permission for.
 
-mod auth;
+pub(crate) mod auth;
 mod client;
 mod playback;
 mod progressive;

@@ -183,7 +183,7 @@ fn extends(one: &str, other: &str) -> bool {
 
 /// `text` without anything in brackets, since Deezer wants every word of a search to match and
 /// "(Official Video)" or "[Remastered]" would rule out the release itself.
-fn searchable(text: &str) -> String {
+pub(crate) fn searchable(text: &str) -> String {
     let mut kept = String::with_capacity(text.len());
     let mut depth = 0usize;
     for character in text.chars() {

@@ -8,6 +8,7 @@ pub mod drm;
 pub mod engine;
 pub mod equalizer;
 pub mod escape;
+mod hls;
 pub mod kugou;
 #[cfg(test)]
 mod live_tests;
@@ -15,6 +16,7 @@ pub mod local;
 pub mod lrclib;
 pub mod lyrics;
 mod models;
+pub mod motion;
 pub mod musixmatch;
 pub mod netease;
 pub mod potoken;
