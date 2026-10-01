@@ -11,6 +11,7 @@ mod library;
 mod logging;
 mod lyrics;
 mod mosaic;
+mod motion;
 mod network;
 mod pins;
 mod playback;
@@ -45,6 +46,7 @@ pub use library::{
 };
 pub use logging::log_file;
 pub use lyrics::{Lyrics, LyricsState};
+pub use motion::Motion;
 pub use network::{Network, Reconnected};
 pub use pins::{PinSort, Pins};
 pub use playback::{Origin, Playback, PlaybackState, Repeat, Sleep, Whence};
@@ -163,6 +165,8 @@ pub struct Sonora {
     pub library: Entity<Library>,
     pub history: Entity<History>,
     pub lyrics: Entity<Lyrics>,
+    /// The motion artwork file of the playing album, for fullscreen to loop over the cover.
+    pub motion: Entity<Motion>,
     pub network: Entity<Network>,
     pub pins: Entity<Pins>,
     pub playback: Entity<Playback>,
@@ -213,7 +217,7 @@ pub fn init(
         .detach();
     });
     let cache = storage::Cache::standard();
-    let library = cx.new(|cx| Library::new(session.clone(), io.clone(), cache, cx));
+    let library = cx.new(|cx| Library::new(session.clone(), io.clone(), cache.clone(), cx));
     let queue = cx.new(|cx| Queue::new(session.clone(), settings.clone(), cx));
     let playback = cx.new(|cx| Playback::new(session.clone(), queue.clone(), settings.clone(), cx));
     let history = cx.new(|cx| {
@@ -247,6 +251,16 @@ pub fn init(
         )
     });
     let cover = cx.new(|cx| Cover::new(session.clone(), playback.clone(), io.clone(), cx));
+    let motion = cx.new(|cx| {
+        Motion::new(
+            session.clone(),
+            playback.clone(),
+            settings.clone(),
+            cache,
+            io.clone(),
+            cx,
+        )
+    });
     let drm = cx.new(|cx| Drm::new(session.clone(), io.clone(), cx));
     let updates = cx.new(|cx| Updates::new(settings.clone(), io.clone(), cx));
     let usage = cx.new(|cx| Usage::new(session.clone(), database, io.clone(), cx));
@@ -269,6 +283,7 @@ pub fn init(
         library,
         history,
         lyrics,
+        motion,
         network,
         pins,
         playback,

@@ -326,6 +326,9 @@ struct Appearance {
     adaptive_theme: bool,
     ambient: bool,
     ambient_motion: bool,
+    /// Whether fullscreen plays an album's Apple Music motion artwork. Off by default, since
+    /// turning it on sends what plays to Apple's catalog for every provider.
+    motion_artwork: bool,
     visualizer: bool,
     visualizer_style: String,
     /// Whether the visualizer draws the track at its own level rather than at the volume.
@@ -586,6 +589,7 @@ impl Default for Appearance {
             adaptive_theme: true,
             ambient: true,
             ambient_motion: true,
+            motion_artwork: false,
             visualizer: true,
             visualizer_style: ui::VisualizerStyle::default().id().to_owned(),
             visualizer_absolute: false,
@@ -940,6 +944,11 @@ impl AppSettings {
     /// the system reduce-motion preference does too.
     pub fn ambient_motion(&self) -> bool {
         self.values.appearance.ambient_motion
+    }
+
+    /// Whether fullscreen plays the album's looping motion artwork when Apple Music has one.
+    pub fn motion_artwork(&self) -> bool {
+        self.values.appearance.motion_artwork
     }
 
     /// Whether the playing cover should colour the theme, given whether fullscreen is up. The
@@ -1581,6 +1590,11 @@ impl AppSettings {
 
     pub fn set_ambient_motion(&mut self, motion: bool, cx: &mut Context<Self>) {
         self.values.appearance.ambient_motion = motion;
+        self.schedule_save(cx);
+    }
+
+    pub fn set_motion_artwork(&mut self, motion_artwork: bool, cx: &mut Context<Self>) {
+        self.values.appearance.motion_artwork = motion_artwork;
         self.schedule_save(cx);
     }
 
