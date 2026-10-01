@@ -23,6 +23,8 @@ When you use Spotify, YouTube Music, lyrics providers, or other online integrati
 
 Data handled by those services is subject to their respective privacy policies and terms.
 
+The optional "Animated album art" setting is off by default. When it is on, Sonora looks up the title, artist, album and length of the playing track in Apple Music's public catalogue, whichever provider is playing it, and downloads the album's looping artwork from Apple when it has one. No account or credential is sent with these requests.
+
 ## Authentication credentials
 
 Authentication credentials used by Sonora are stored locally on the user's device.
