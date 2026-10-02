@@ -37,4 +37,3 @@ objc2-core-video = { workspace = true, features = ["CVBase", "CVBuffer", "CVImag
 gpui.workspace = true
 gpui_platform.workspace = true
 env_logger.workspace = true
-image.workspace = true

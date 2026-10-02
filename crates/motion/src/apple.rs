@@ -1,6 +1,6 @@
 //! The macOS decoder: AVAssetReader hands back hardware-decoded, IOSurface-backed pixel buffers
-//! in the bi-planar 4:2:0 layout gpui's `surface` element draws without a copy, or BGRA copied
-//! out row by row when images are asked for.
+//! in the bi-planar 4:2:0 layout gpui's `surface` element draws without a copy, or the same
+//! planes copied out into memory when planes are asked for.
 
 use std::path::Path;
 use std::time::Duration;
@@ -17,11 +17,12 @@ use objc2_av_foundation::{
 };
 use objc2_core_foundation::CFString;
 use objc2_core_video::{
-    CVImageBuffer, CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow,
-    CVPixelBufferGetHeight, CVPixelBufferGetWidth, CVPixelBufferLockBaseAddress,
+    CVImageBuffer, CVPixelBufferGetBaseAddressOfPlane, CVPixelBufferGetBytesPerRowOfPlane,
+    CVPixelBufferGetHeightOfPlane, CVPixelBufferGetWidthOfPlane, CVPixelBufferLockBaseAddress,
     CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress, kCVPixelBufferHeightKey,
     kCVPixelBufferMetalCompatibilityKey, kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferWidthKey,
-    kCVPixelFormatType_32BGRA, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+    kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+    kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
 };
 use objc2_foundation::{NSDictionary, NSNumber, NSString, NSURL};
 
@@ -31,12 +32,12 @@ use crate::{Frame, Picture};
 /// decodes it forever on a thread of its own.
 pub(crate) fn spawn(path: &Path, edge: u32, sender: mpsc::Sender<Frame>) -> Result<()> {
     let path = path.to_path_buf();
-    let images = crate::images();
-    autoreleasepool(|_| reader(&path, edge, images).map(drop))?;
+    let planes = crate::planes();
+    autoreleasepool(|_| reader(&path, edge, planes).map(drop))?;
     std::thread::Builder::new()
         .name("motion-decoder".into())
         .spawn(move || {
-            if let Err(error) = decode(&path, edge, images, sender) {
+            if let Err(error) = decode(&path, edge, planes, sender) {
                 log::warn!("motion: cannot decode {}: {error:#}", path.display());
             }
         })
@@ -45,10 +46,10 @@ pub(crate) fn spawn(path: &Path, edge: u32, sender: mpsc::Sender<Frame>) -> Resu
 }
 
 /// Reads the file from the start each time it runs out, until the receiver goes away.
-fn decode(path: &Path, edge: u32, images: bool, mut sender: mpsc::Sender<Frame>) -> Result<()> {
+fn decode(path: &Path, edge: u32, planes: bool, mut sender: mpsc::Sender<Frame>) -> Result<()> {
     loop {
         let finished = autoreleasepool(|_| -> Result<bool> {
-            let (reader, output) = reader(path, edge, images)?;
+            let (reader, output) = reader(path, edge, planes)?;
             let mut sent = 0usize;
             while let Some(sample) = unsafe { output.copyNextSampleBuffer() } {
                 let Some(image) = (unsafe { sample.image_buffer() }) else {
@@ -61,8 +62,8 @@ fn decode(path: &Path, edge: u32, images: bool, mut sender: mpsc::Sender<Frame>)
                     }
                     _ => Duration::ZERO,
                 };
-                let picture = match images {
-                    true => bgra(&image)?,
+                let picture = match planes {
+                    true => nv12(&image)?,
                     false => {
                         let raw = objc2_core_foundation::CFRetained::as_ptr(&image).as_ptr()
                             as CVPixelBufferRef;
@@ -89,12 +90,12 @@ fn decode(path: &Path, edge: u32, images: bool, mut sender: mpsc::Sender<Frame>)
     }
 }
 
-/// A started reader over the file's first video track, asking for buffers scaled to `edge`, in
-/// BGRA when `images` and in the surface layout otherwise.
+/// A started reader over the file's first video track, asking for buffers scaled to `edge`. With
+/// `planes` it asks for the video range, which is what decoders elsewhere hand out too.
 fn reader(
     path: &Path,
     edge: u32,
-    images: bool,
+    planes: bool,
 ) -> Result<(Retained<AVAssetReader>, Retained<AVAssetReaderTrackOutput>)> {
     let path = path.to_str().context("the motion file path is not utf-8")?;
     let url = NSURL::fileURLWithPath(&NSString::from_str(path));
@@ -107,8 +108,8 @@ fn reader(
             .firstObject()
             .context("the file has no video track")?;
 
-        let format = NSNumber::new_u32(match images {
-            true => kCVPixelFormatType_32BGRA,
+        let format = NSNumber::new_u32(match planes {
+            true => kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
             false => kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
         });
         let side = NSNumber::new_u32(edge);
@@ -144,33 +145,41 @@ fn reader(
     }
 }
 
-/// Copies a BGRA buffer out into tightly packed rows, dropping any padding CoreVideo added.
-fn bgra(image: &CVImageBuffer) -> Result<Picture> {
+/// Copies a bi-planar video range buffer out into tightly packed NV12 planes, dropping any
+/// padding CoreVideo added to the rows.
+fn nv12(image: &CVImageBuffer) -> Result<Picture> {
     let flags = CVPixelBufferLockFlags::ReadOnly;
     if unsafe { CVPixelBufferLockBaseAddress(image, flags) } != 0 {
         bail!("cannot lock a decoded frame");
     }
-    let width = CVPixelBufferGetWidth(image);
-    let height = CVPixelBufferGetHeight(image);
-    let stride = CVPixelBufferGetBytesPerRow(image);
-    let base = CVPixelBufferGetBaseAddress(image).cast::<u8>();
-    let row = width * 4;
-    let mut pixels = Vec::with_capacity(row * height);
-    if !base.is_null() && stride >= row {
-        for line in 0..height {
-            // SAFETY: the buffer is locked, and each of its `height` rows is `stride` bytes long.
-            let start = unsafe { base.add(line * stride) };
-            pixels.extend_from_slice(unsafe { std::slice::from_raw_parts(start, row) });
+    let copy = |plane: usize, bytes_per_pixel: usize| -> Option<(Vec<u8>, usize, usize)> {
+        let width = CVPixelBufferGetWidthOfPlane(image, plane);
+        let height = CVPixelBufferGetHeightOfPlane(image, plane);
+        let stride = CVPixelBufferGetBytesPerRowOfPlane(image, plane);
+        let base = CVPixelBufferGetBaseAddressOfPlane(image, plane).cast::<u8>();
+        let row = width * bytes_per_pixel;
+        if base.is_null() || stride < row {
+            return None;
         }
-    }
+        let mut packed = Vec::with_capacity(row * height);
+        for line in 0..height {
+            // SAFETY: the buffer is locked, and each of the plane's rows is `stride` bytes long.
+            let start = unsafe { base.add(line * stride) };
+            packed.extend_from_slice(unsafe { std::slice::from_raw_parts(start, row) });
+        }
+        Some((packed, width, height))
+    };
+    let planes = copy(0, 1).zip(copy(1, 2));
     unsafe { CVPixelBufferUnlockBaseAddress(image, flags) };
-    if pixels.len() != row * height {
-        bail!("a decoded frame has no readable pixels");
-    }
-    Ok(Picture::Bgra {
-        pixels,
+    let Some(((y, width, height), (cb_cr, _, _))) = planes else {
+        bail!("a decoded frame has no readable planes");
+    };
+    Ok(Picture::Nv12 {
         width: width as u32,
         height: height as u32,
+        video_range: true,
+        y,
+        cb_cr,
     })
 }
 

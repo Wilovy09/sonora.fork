@@ -1,30 +1,23 @@
 //! Plays a motion artwork file in a bare window, to measure decode and paint cost.
 //!
-//! `cargo run -p motion --example spike -- <file.mp4> [edge]`. With `SONORA_MOTION_IMAGES=1` it
-//! paints BGRA images, the path Windows and Linux take, instead of macOS surfaces.
+//! `cargo run -p motion --example spike -- <file.mp4> [edge]`. With `SONORA_MOTION_NV12=1` it
+//! paints NV12 planes from memory, the path Windows and Linux take, instead of macOS buffers.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::StreamExt as _;
 use gpui::prelude::*;
 use gpui::{
-    App, Bounds, Context, ObjectFit, RenderImage, Task, Window, WindowBounds, WindowOptions, div,
-    img, px, rgb, size, surface,
+    App, Bounds, Context, Nv12Frame, Nv12Range, ObjectFit, SurfaceSource, Task, Window,
+    WindowBounds, WindowOptions, div, px, rgb, size, surface,
 };
 use motion::Picture;
 
 const SIDE: f32 = 768.;
 
-/// The frame on screen, in whichever form the decoder handed it over.
-enum Shown {
-    Surface(motion::SurfaceBuffer),
-    Image(Arc<RenderImage>),
-}
-
 struct Spike {
-    frame: Option<Shown>,
+    frame: Option<SurfaceSource>,
     _task: Task<()>,
 }
 
@@ -45,21 +38,27 @@ impl Spike {
                     .timer(wait.min(Duration::from_millis(100)))
                     .await;
                 let next = match frame.picture {
-                    Picture::Surface(buffer) => Shown::Surface(buffer),
-                    Picture::Bgra {
-                        pixels,
+                    #[cfg(target_os = "macos")]
+                    Picture::Surface(buffer) => SurfaceSource::Surface(buffer),
+                    Picture::Nv12 {
                         width,
                         height,
+                        video_range,
+                        y,
+                        cb_cr,
                     } => {
-                        let image = image::RgbaImage::from_raw(width, height, pixels)
-                            .expect("a frame of the size it says");
-                        Shown::Image(Arc::new(RenderImage::new(vec![image::Frame::new(image)])))
+                        let range = match video_range {
+                            true => Nv12Range::Video,
+                            false => Nv12Range::Full,
+                        };
+                        SurfaceSource::Nv12(
+                            Nv12Frame::new(width, height, range, y, cb_cr)
+                                .expect("a frame of the size it says"),
+                        )
                     }
                 };
                 let updated = this.update(cx, |this, cx| {
-                    if let Some(Shown::Image(old)) = this.frame.replace(next) {
-                        cx.drop_image(old, None);
-                    }
+                    this.frame = Some(next);
                     cx.notify();
                 });
                 if updated.is_err() {
@@ -91,18 +90,13 @@ impl Render for Spike {
             .flex()
             .items_center()
             .justify_center()
-            .map(|this| match &self.frame {
-                Some(Shown::Surface(buffer)) => this.child(
-                    surface(buffer.clone())
+            .when_some(self.frame.clone(), |this, frame| {
+                this.child(
+                    surface(frame)
                         .object_fit(ObjectFit::Cover)
-                        .size(px(SIDE)),
-                ),
-                Some(Shown::Image(image)) => this.child(
-                    img(image.clone())
-                        .object_fit(ObjectFit::Cover)
-                        .size(px(SIDE)),
-                ),
-                None => this,
+                        .size(px(SIDE))
+                        .rounded(px(48.)),
+                )
             })
     }
 }

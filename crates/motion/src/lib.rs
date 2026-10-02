@@ -6,8 +6,9 @@
 //! end of the file, so the loop never ends until [`Frames`] is dropped.
 //!
 //! On macOS a frame is the decoder's own GPU buffer, which gpui draws without a copy. Everywhere
-//! else gpui has no such primitive, so a frame is plain BGRA a view wraps in an image.
-//! `SONORA_MOTION_IMAGES=1` makes macOS take that path too, to try it without another machine.
+//! else a frame is NV12 planes in memory, the layout platform decoders produce and gpui's
+//! surfaces take on every renderer. `SONORA_MOTION_NV12=1` makes macOS hand out planes too, to
+//! try that path without another machine.
 
 use std::path::Path;
 use std::time::Duration;
@@ -37,11 +38,14 @@ pub enum Picture {
     /// A bi-planar 4:2:0 buffer for gpui's `surface` element.
     #[cfg(target_os = "macos")]
     Surface(SurfaceBuffer),
-    /// Tightly packed BGRA rows, the layout gpui keeps its images in.
-    Bgra {
-        pixels: Vec<u8>,
+    /// NV12 in memory: a full size luma plane, then a half size plane of interleaved Cb and Cr,
+    /// rows tightly packed. `video_range` says black is 16 and white 235 rather than 0 and 255.
+    Nv12 {
         width: u32,
         height: u32,
+        video_range: bool,
+        y: Vec<u8>,
+        cb_cr: Vec<u8>,
     },
 }
 
@@ -74,8 +78,8 @@ pub fn open(path: &Path, edge: u32) -> Result<Frames> {
     Ok(frames)
 }
 
-/// Whether frames should come as BGRA images even where surfaces exist.
+/// Whether frames should come as NV12 planes even where GPU buffers exist.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn images() -> bool {
-    std::env::var("SONORA_MOTION_IMAGES").as_deref() == Ok("1")
+fn planes() -> bool {
+    std::env::var("SONORA_MOTION_NV12").as_deref() == Ok("1")
 }
