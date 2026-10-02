@@ -1,21 +1,30 @@
 //! Plays a motion artwork file in a bare window, to measure decode and paint cost.
 //!
-//! `cargo run -p motion --example spike -- <file.mp4> [edge]`
+//! `cargo run -p motion --example spike -- <file.mp4> [edge]`. With `SONORA_MOTION_IMAGES=1` it
+//! paints BGRA images, the path Windows and Linux take, instead of macOS surfaces.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::StreamExt as _;
 use gpui::prelude::*;
 use gpui::{
-    App, Bounds, Context, ObjectFit, Task, Window, WindowBounds, WindowOptions, div, px, rgb, size,
-    surface,
+    App, Bounds, Context, ObjectFit, RenderImage, Task, Window, WindowBounds, WindowOptions, div,
+    img, px, rgb, size, surface,
 };
+use motion::Picture;
 
 const SIDE: f32 = 768.;
 
+/// The frame on screen, in whichever form the decoder handed it over.
+enum Shown {
+    Surface(motion::SurfaceBuffer),
+    Image(Arc<RenderImage>),
+}
+
 struct Spike {
-    frame: Option<core_video::pixel_buffer::CVPixelBuffer>,
+    frame: Option<Shown>,
     _task: Task<()>,
 }
 
@@ -35,13 +44,25 @@ impl Spike {
                 cx.background_executor()
                     .timer(wait.min(Duration::from_millis(100)))
                     .await;
-                if this
-                    .update(cx, |this, cx| {
-                        this.frame = Some(frame.buffer);
-                        cx.notify();
-                    })
-                    .is_err()
-                {
+                let next = match frame.picture {
+                    Picture::Surface(buffer) => Shown::Surface(buffer),
+                    Picture::Bgra {
+                        pixels,
+                        width,
+                        height,
+                    } => {
+                        let image = image::RgbaImage::from_raw(width, height, pixels)
+                            .expect("a frame of the size it says");
+                        Shown::Image(Arc::new(RenderImage::new(vec![image::Frame::new(image)])))
+                    }
+                };
+                let updated = this.update(cx, |this, cx| {
+                    if let Some(Shown::Image(old)) = this.frame.replace(next) {
+                        cx.drop_image(old, None);
+                    }
+                    cx.notify();
+                });
+                if updated.is_err() {
                     return;
                 }
                 shown += 1;
@@ -70,8 +91,18 @@ impl Render for Spike {
             .flex()
             .items_center()
             .justify_center()
-            .when_some(self.frame.clone(), |this, frame| {
-                this.child(surface(frame).object_fit(ObjectFit::Cover).size(px(SIDE)))
+            .map(|this| match &self.frame {
+                Some(Shown::Surface(buffer)) => this.child(
+                    surface(buffer.clone())
+                        .object_fit(ObjectFit::Cover)
+                        .size(px(SIDE)),
+                ),
+                Some(Shown::Image(image)) => this.child(
+                    img(image.clone())
+                        .object_fit(ObjectFit::Cover)
+                        .size(px(SIDE)),
+                ),
+                None => this,
             })
     }
 }
