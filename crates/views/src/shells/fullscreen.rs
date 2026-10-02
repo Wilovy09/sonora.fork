@@ -385,8 +385,7 @@ impl FullscreenView {
         let waiting = !local && album.is_some() && cover_large.is_none();
         let artwork_bounds = self.artwork_bounds.clone();
         // Same guard as the large art: a track with no cover of its own never borrows a loop.
-        let motion = self.motion_cover.read(cx);
-        let looping = (small.is_some() && motion.ready()).then(|| motion.shown());
+        let looping = small.is_some() && self.motion_cover.read(cx).visible();
 
         div()
             .id("fullscreen-artwork")
@@ -436,19 +435,14 @@ impl FullscreenView {
                                 }),
                         )
                     })
-                    .when_some(looping, |this, shown| {
+                    .when(looping, |this| {
                         this.child(
                             div()
                                 .absolute()
                                 .top(pad)
                                 .left(pad)
                                 .size(raster_side)
-                                .rounded(radius)
-                                .overflow_hidden()
-                                .child(self.motion_cover.clone())
-                                .motion(("cover-motion", shown), Motion::Slow, |art, t| {
-                                    art.opacity(t)
-                                }),
+                                .child(self.motion_cover.clone()),
                         )
                     }),
             )
