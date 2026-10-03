@@ -5,10 +5,12 @@
 //! presentation time; the decoder thread blocks while the queue is full and starts over at the
 //! end of the file, so the loop never ends until [`Frames`] is dropped.
 //!
-//! On macOS a frame is the decoder's own GPU buffer, which gpui draws without a copy. Everywhere
-//! else a frame is NV12 planes in memory, the layout platform decoders produce and gpui's
-//! surfaces take on every renderer. `SONORA_MOTION_NV12=1` makes macOS hand out planes too, to
-//! try that path without another machine.
+//! The decoders are AVFoundation on macOS, Media Foundation on Windows and GStreamer on Linux,
+//! which is opened at runtime rather than linked. On macOS a frame is the decoder's
+//! own GPU buffer, which gpui draws without a copy. Everywhere else a frame is NV12 planes in
+//! memory, the layout those decoders produce and gpui's surfaces take on every renderer.
+//! `SONORA_MOTION_NV12=1` makes macOS hand out planes too, to try that path without another
+//! machine.
 
 use std::path::Path;
 use std::time::Duration;
@@ -18,6 +20,10 @@ use futures::channel::mpsc;
 
 #[cfg(target_os = "macos")]
 mod apple;
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+mod gst;
+#[cfg(windows)]
+mod media_foundation;
 
 /// How many decoded frames may wait for the view. Small, because a frame is a GPU-ready buffer
 /// and the queue only has to cover one late repaint.
@@ -57,24 +63,38 @@ unsafe impl Send for Frame {}
 /// The frames of one looping file. Dropping it stops the decoder thread.
 pub type Frames = mpsc::Receiver<Frame>;
 
-/// Whether this build can decode motion artwork at all. When it cannot, callers keep the
-/// static cover and should hide anything that offers motion artwork.
+/// Whether this build and system can decode motion artwork at all. When they cannot, callers
+/// keep the static cover and should hide anything that offers motion artwork. On Linux this
+/// asks GStreamer for an H.264 decoder, so it can be false on a machine without one.
 pub fn supported() -> bool {
-    cfg!(target_os = "macos")
+    #[cfg(any(target_os = "macos", windows))]
+    return true;
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    return gst::supported();
+    #[allow(unreachable_code)]
+    false
 }
 
-/// Starts decoding `path` in a loop, scaled to `edge` physical pixels a side, or at its own
-/// size when `edge` is zero.
+/// Starts decoding `path` in a loop. On macOS frames are scaled to `edge` physical pixels a
+/// side, or kept at their own size when `edge` is zero; elsewhere they keep their own size.
 pub fn open(path: &Path, edge: u32) -> Result<Frames> {
     let (sender, frames) = mpsc::channel(QUEUE);
     #[cfg(target_os = "macos")]
     apple::spawn(path, edge, sender)?;
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    media_foundation::spawn(path, edge, sender)?;
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    gst::spawn(path, edge, sender)?;
+    #[cfg(not(any(
+        target_os = "macos",
+        windows,
+        any(target_os = "linux", target_os = "freebsd")
+    )))]
     {
-        let _ = (path, edge, sender);
+        let _ = (path, edge, sender, frames);
         anyhow::bail!("motion artwork is not supported on this platform");
     }
-    #[cfg_attr(not(target_os = "macos"), allow(unreachable_code))]
+    #[allow(unreachable_code)]
     Ok(frames)
 }
 

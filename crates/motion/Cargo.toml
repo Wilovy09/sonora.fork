@@ -33,6 +33,18 @@ objc2-av-foundation = { workspace = true, features = [
 objc2-core-media = { workspace = true, features = ["CMSampleBuffer", "CMTime", "objc2-core-video"] }
 objc2-core-video = { workspace = true, features = ["CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
 
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+  "Win32_Media_MediaFoundation",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Variant",
+] }
+
+# GStreamer itself is opened at runtime, never linked; see `src/gst.rs`.
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]
 gpui.workspace = true
 gpui_platform.workspace = true
