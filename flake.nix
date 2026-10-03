@@ -72,6 +72,9 @@
                 sqlite
                 webkitgtk_4_1
                 glib-networking
+                # Opened at runtime by the motion artwork decoder, never linked.
+                gst_all_1.gstreamer
+                gst_all_1.gst-plugins-base
               ]
             else
               [ ];
@@ -80,13 +83,15 @@
 
           # WebKit plays a page's media through GStreamer and aborts its web process when no
           # audio sink element exists. The Nix webkitgtk closure carries only core and base, and
-          # autoaudiosink lives in good, so the plugin path has to name all three.
+          # autoaudiosink lives in good, so the plugin path has to name all three. Motion artwork
+          # demuxes with qtdemux, also in good, and decodes H.264 with libav.
           gstPluginPath = pkgs.lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" (
             with pkgs.gst_all_1;
             [
               gstreamer
               gst-plugins-base
               gst-plugins-good
+              gst-libav
             ]
           );
 
@@ -334,6 +339,8 @@
                 openssl
                 webkitgtk_4_1
                 glib-networking
+                gst_all_1.gstreamer
+                gst_all_1.gst-plugins-base
               ]
             else
               [ ];
@@ -390,6 +397,7 @@
                       gstreamer
                       gst-plugins-base
                       gst-plugins-good
+                      gst-libav
                     ]
                   )
                 }''${GST_PLUGIN_SYSTEM_PATH_1_0:+:$GST_PLUGIN_SYSTEM_PATH_1_0}"
