@@ -449,10 +449,11 @@ impl FullscreenView {
     }
 
     /// Tells `state::Motion` how many physical pixels the cover raster spans, so it fetches a
-    /// loop that is sharp at that size.
+    /// loop that is sharp at that size. A system that cannot decode loops never asks, so
+    /// `state::Motion` never looks anything up there.
     fn want_motion_edge(&mut self, side: Pixels, window: &Window, cx: &mut Context<Self>) {
         let edge = (side.as_f32() * window.scale_factor()).ceil() as u32;
-        if edge <= self.motion_edge {
+        if edge <= self.motion_edge || !motion::supported() {
             return;
         }
         self.motion_edge = edge;

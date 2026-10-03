@@ -45,6 +45,9 @@ pub(crate) struct MotionCover {
     departure: usize,
     task: Option<Task<()>>,
     leave: Option<Task<()>>,
+    /// Answers `motion::supported` off the UI thread once, since on Linux it scans GStreamer's
+    /// plugin registry; later calls read the cached answer.
+    _probe: Task<bool>,
 }
 
 impl EventEmitter<Ready> for MotionCover {}
@@ -54,6 +57,7 @@ impl MotionCover {
         let motion = Sonora::global(cx).motion.clone();
         let playback = Sonora::global(cx).playback.clone();
         cx.observe(&motion, |this, _, cx| this.sync(cx)).detach();
+        let probe = cx.background_spawn(async { motion::supported() });
         let mut this = Self {
             motion,
             playback,
@@ -64,6 +68,7 @@ impl MotionCover {
             departure: 0,
             task: None,
             leave: None,
+            _probe: probe,
         };
         this.sync(cx);
         this
